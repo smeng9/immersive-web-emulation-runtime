@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "iwer": {
+      "command": "node",
+      "args": ["packages/extension-bridge/bin/iwer-bridge.mjs", "serve"]
+    }
+  }
+}

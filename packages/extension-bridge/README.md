@@ -12,29 +12,38 @@ Coding agent ──stdio (MCP)──► @iwer/extension-bridge daemon ──ws:/
 
 - The agent spawns `iwer-bridge serve` over **stdio** (the universal MCP transport).
 - The daemon also hosts a **loopback WebSocket server** (an MV3 extension can only be a WS client, never a server).
-- The extension dials in, authenticates with a **per-session token**, and relays each tool call to the in-page IWER `device.remote`.
+- The extension dials in and relays each tool call to the in-page IWER `device.remote`.
 
-Security: bound to `127.0.0.1` only, Origin/Host validated, per-session token required (stronger than the localhost-WS norm — see plan §11).
+Security: bound to `127.0.0.1` only, Origin/Host validated, and control is gated browser-side by a per-tab **Allow** prompt before any agent request reaches a page.
 
 ## Use
 
-```bash
-# 1. Point your agent at the daemon (writes the right config per client):
-npx @iwer/extension-bridge install --client claude        # or cursor | copilot | codex | all
-
-# 2. Restart your agent. When it first uses an iwer tool the daemon starts.
-#    Get the pairing code:
-npx @iwer/extension-bridge pair
-
-# 3. In Chrome: enable the Immersive Web Emulator on a WebXR page, click the
-#    IWE toolbar icon → Connect, paste the code, and Allow the session.
-```
-
-Or wire it manually, e.g. Claude Code:
+Published package:
 
 ```bash
 claude mcp add --scope user iwer -- npx -y @iwer/extension-bridge serve
 ```
+
+Local unpublished checkout:
+
+```bash
+pnpm --filter @iwer/extension-bridge run build
+```
+
+Then use the committed project config at the repository root, `.mcp.json`, or manually point your agent at:
+
+```json
+{
+  "mcpServers": {
+    "iwer": {
+      "command": "node",
+      "args": ["packages/extension-bridge/bin/iwer-bridge.mjs", "serve"]
+    }
+  }
+}
+```
+
+Restart your agent, open a WebXR page, enable Immersive Web Emulator from the toolbar, and click **Allow** when the agent first acts on the page.
 
 ## Tools
 
@@ -43,8 +52,7 @@ claude mcp add --scope user iwer -- npx -y @iwer/extension-bridge serve
 ## Commands
 
 - `iwer-bridge serve` — run the daemon (your agent spawns this).
-- `iwer-bridge install [--client <ids|all>] [--scope user|project] [--dry-run] [--remove]`
-- `iwer-bridge pair` — print the current pairing code.
+- `iwer-bridge help` — show CLI help.
 
 ## License
 

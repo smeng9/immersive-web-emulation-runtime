@@ -9,6 +9,5 @@ bridges coding agents (Claude Code, Codex, Cursor, …) to the Immersive Web
 Emulator browser extension, forwarding a 20-tool device-control catalog to IWER's
 `device.remote` in any page (no dev server required). `browser_screenshot` is a
 browser-host tool serviced by the extension (`captureVisibleTab`), not
-`device.remote`. Security: 127.0.0.1-only bind, per-session token, and
-Origin/Host validation. Includes an `install` command that writes the stdio MCP
-config for Claude Code / Cursor / Copilot / Codex / Windsurf.
+`device.remote`. Security: 127.0.0.1-only bind, Origin/Host validation, and a
+browser-side per-tab Allow prompt before any agent request reaches a page.

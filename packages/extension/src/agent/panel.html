@@ -20,6 +20,8 @@
         --accent: #2d7ff9;
         --accent-press: #1c6fe0;
         --accent-tint: rgba(45, 127, 249, 0.12);
+        --pin: #f5b94f;
+        --pin-tint: rgba(245, 185, 79, 0.13);
         --online: #4fe0b0;
         --pending: #ffc861;
         --danger: #f3978f;
@@ -71,6 +73,10 @@
         border-top: 1px solid var(--hairline);
         padding: 16px 0;
       }
+      section:first-child {
+        border-top: none;
+        padding-top: 0;
+      }
       .banner {
         position: relative;
         border: none;
@@ -91,6 +97,73 @@
       }
       .banner strong {
         font-weight: 600;
+      }
+      .pin-hint {
+        position: relative;
+        border: none;
+        border-radius: 10px;
+        background: var(--pin-tint);
+        padding: 12px 12px 12px 15px;
+        margin: 12px 0;
+        overflow: hidden;
+      }
+      .pin-hint::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: var(--pin);
+      }
+      .pin-hint strong {
+        font-weight: 600;
+      }
+      .enable-guide {
+        margin: 14px 0 0;
+      }
+      .enable-guide h3 {
+        margin-top: 0;
+      }
+      .guide-media {
+        display: grid;
+        grid-template-columns: minmax(260px, 1fr) minmax(210px, 0.65fr);
+        gap: 12px;
+        align-items: center;
+        margin-top: 10px;
+        padding: 10px;
+        border: 1px solid var(--hairline);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.025);
+      }
+      .guide-gif {
+        display: block;
+        width: 100%;
+        max-width: 520px;
+        height: auto;
+        border: 1px solid var(--hairline);
+        border-radius: 10px;
+        background: var(--p0);
+      }
+      .guide-points {
+        margin: 0;
+        padding-left: 20px;
+      }
+      .guide-points li {
+        margin: 0 0 8px;
+        color: var(--text2);
+      }
+      .guide-points li:last-child {
+        margin-bottom: 0;
+      }
+      .guide-points strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      @media (max-width: 760px) {
+        .guide-media {
+          grid-template-columns: 1fr;
+        }
       }
       .row {
         display: grid;

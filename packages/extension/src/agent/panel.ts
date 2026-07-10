@@ -5,10 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import catalog from './tool-catalog.generated.json';
 import {
   DEFAULTS,
   DEVICE_CATALOG,
+  ENABLED_DOMAINS_KEY,
   ENVIRONMENT_CATALOG,
   STORAGE_KEY,
   isOverridden,
@@ -27,19 +27,8 @@ interface StatusReply {
   agentTabId: number | null;
   domain: string | null;
   version: string;
+  url?: string;
 }
-
-const MCP_CONFIG_SNIPPET = `{
-  "mcpServers": {
-    "iwer": {
-      "command": "npx",
-      "args": ["-y", "@iwer/extension-bridge"]
-    }
-  }
-}`;
-
-const COPY_CHECK_SVG =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>';
 
 interface PrefsReadReply {
   blob: PrefsBlob;
@@ -97,12 +86,25 @@ function acknowledgeMovedNotice(): void {
   }
 }
 
-function inspectedUrl(): Promise<string> {
-  return new Promise((resolve) => {
-    if (!chrome.devtools?.inspectedWindow) {
-      resolve(window.location.href);
-      return;
-    }
+function tabId(): number | null {
+  return chrome.devtools?.inspectedWindow?.tabId ?? null;
+}
+
+async function inspectedTabUrl(): Promise<string> {
+  const id = tabId();
+  if (id == null) return '';
+  try {
+    const tab = await chrome.tabs.get(id);
+    return tab.url ?? tab.pendingUrl ?? '';
+  } catch {
+    return '';
+  }
+}
+
+async function inspectedUrl(): Promise<string> {
+  if (!chrome.devtools?.inspectedWindow) return window.location.href;
+
+  const evalUrl = await new Promise<string>((resolve) => {
     chrome.devtools.inspectedWindow.eval(
       'location.href',
       (result: unknown, exceptionInfo?: { isException?: boolean }) => {
@@ -110,15 +112,18 @@ function inspectedUrl(): Promise<string> {
       },
     );
   });
-}
-
-function tabId(): number | null {
-  return chrome.devtools?.inspectedWindow?.tabId ?? null;
+  return evalUrl || inspectedTabUrl();
 }
 
 async function loadState(): Promise<void> {
+  const id = tabId();
   currentUrl = await inspectedUrl();
-  status = await send<StatusReply>({ type: MSG.STATUS, url: currentUrl });
+  status = await send<StatusReply>({
+    type: MSG.STATUS,
+    url: currentUrl,
+    tabId: id,
+  });
+  currentUrl = currentUrl || status.url || '';
   prefs = await send<PrefsReadReply>({
     type: MSG.PREFS_READ,
     domain: scope === 'origin' ? status.domain : null,
@@ -211,7 +216,6 @@ function row(
 
 function settingsHtml(): string {
   const domain = status?.domain ?? 'this site';
-  const currentKeymap = JSON.stringify(value('keymap'), null, 2);
   return `<section>
 		<h2>Persistent Settings</h2>
 		<div class="segment" aria-label="Settings scope">
@@ -263,22 +267,12 @@ function settingsHtml(): string {
       )}"/><div class="muted">${Math.round((value('fovy') / Math.PI) * 180)} deg</div>`,
     )}
 		${row(
-      'keymap',
-      'Key Bindings',
-      `<pre>${h(currentKeymap)}</pre><div class="muted">Edit bindings in the page overlay. They persist here when changed.</div>`,
-    )}
-		${row(
       'defaultPose',
       'Default Pose',
       value('defaultPose')
         ? '<span>Saved</span> <button data-reset="defaultPose">Clear</button>'
         : '<span class="muted">Not saved. Use the save button in the overlay.</span>',
     )}
-		<div class="row">
-			<div><div class="label">Coming Soon</div><div class="badge">Stored shape reserved</div></div>
-			<div class="muted">Trigger mode, joystick sticky, and room dimensions are reserved for future engine support.</div>
-			<div></div>
-		</div>
 		<div class="actions">
 			<button class="primary" id="reload">Reload page to apply</button>
 			<button id="copyOriginDefaults" ${scope === 'origin' ? '' : 'hidden'}>Use these as all-sites defaults</button>
@@ -293,61 +287,68 @@ function settingsHtml(): string {
 function introHtml(): string {
   const showBanner = prefs?.blob.ui?.seenWhatsNew !== true;
   return `<section>
-		<h1>WebXR</h1>
-		<p>The headset, controller, and hand controls appear as a floating overlay on emulated WebXR pages. This panel is for defaults that survive reloads: device, environment, input mode, key bindings, and AI-agent setup.</p>
+		<h1>Immersive Web Emulator</h1>
+		<div class="pin-hint" role="note">
+			<strong>Pin IWE to your toolbar.</strong>
+			<div>Use the toolbar button to enable or disable WebXR emulation for the current site, open page-level controls, and connect AI agents. If you do not see it, open Chrome's Extensions menu and pin Immersive Web Emulator.</div>
+		</div>
+		<p>This panel is for persistent defaults that survive reloads: device, environment, input mode, stereo rendering, IPD, FOV-Y, and saved default pose.</p>
 		<div class="banner" id="movedBanner" role="status" ${showBanner ? '' : 'hidden'}>
 			<strong>Where are the live controls?</strong>
-			<div>The headset, controller, and hand controls are now a floating overlay on the WebXR page itself. This panel is for defaults that survive reloads: device, environment, input mode, key bindings, and AI-agent setup. Settings reset in 2.0; set them once here and they persist.</div>
+			<div>The headset, controller, hand, and button-mapping controls are now in the floating overlay on the WebXR page itself. Coming from the old DevTools WebXR tab? Those live controls moved onto the page; this panel now focuses on persistent defaults like device, environment, IPD, and FOV-Y.</div>
 			<div class="actions"><button id="ackMoved">Got it</button></div>
 		</div>
-		<details>
-			<summary>Coming from the old version?</summary>
-			<p>Older IWE builds put live controls in a DevTools tab named "WebXR". Those controls moved into the page overlay. The DevTools panel now edits persistent defaults.</p>
-		</details>
 	</section>`;
 }
 
-function agentHtml(): string {
-  const tools = catalog.tools
-    .map(
-      (tool) =>
-        `<div class="tool"><code>${h(tool.name)}</code><span>${tool.readOnly ? 'read-only' : 'mutates'}</span><span>${h(tool.description)}</span></div>`,
-    )
-    .join('');
-  return `<section>
-		<h2>AI Agent Setup</h2>
-		<p>Drive this WebXR page from Claude Code, Cursor, Codex, Copilot, Windsurf, or any MCP client.</p>
-		<h3>1. Add the MCP server</h3>
-		<p class="muted">Paste this into your agent's MCP config, then restart it:</p>
-		<div class="codeblock"><button id="copySnippet" class="copy-icon" title="Copy config" aria-label="Copy config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button><pre id="mcpSnippet">${h(MCP_CONFIG_SNIPPET)}</pre></div>
-				<p class="muted">Codex uses TOML — adapt the command/args accordingly. Consult your agent's MCP docs for where the config lives.</p>
-		<h3>2. Connect this tab</h3>
-		<p>Enable IWE on this page, then ask your agent to act on it. The first time it does, an <strong>Allow</strong> prompt appears on the page — approve it to let the agent control this tab.</p>
-		<p>Status: ${
-      status?.connected ? 'Bridge connected' : 'Bridge not connected'
-    }</p>
-		<h3>Try it</h3>
-		<pre>Get the XR session status, enter XR, look at {x:0,y:1,z:-1}, select with the right controller, then screenshot what you see.</pre>
-		<details>
-			<summary>Tools for @iwer/extension-bridge v${h(catalog.mcpVersion)}</summary>
-			${tools}
-		</details>
-	</section>`;
+function enableGuideHtml(): string {
+  return `<div class="enable-guide">
+		<h3>Pin the toolbar button</h3>
+		<p class="muted">IWE 2.0 is activated per site. Pin the toolbar button once, then use it whenever you need to turn emulation on for the current page.</p>
+		<div class="guide-media" aria-label="Toolbar pin and activation guide">
+			<img class="guide-gif" src="../icons/pin-toolbar-guide.gif" alt="Animated guide showing IWE being pinned to the Chrome toolbar, enabled for the current WebXR page, and opened from the toolbar menu." />
+			<ol class="guide-points">
+				<li><strong>Pin IWE</strong> from Chrome's Extensions menu.</li>
+				<li><strong>Click the pinned button</strong> to turn blue inactive into green enabled.</li>
+				<li><strong>Open the toolbar menu</strong> to stop emulation, reopen page controls, or connect AI agents.</li>
+			</ol>
+		</div>
+		<p class="muted">After enabling the site, the page reloads and the live headset, controller, hand, and button-mapping controls appear in the page overlay.</p>
+	</div>`;
 }
 
 function emptyHtml(): string {
+  const isHttp = /^https?:/.test(currentUrl);
   return `<section>
 		<h2>Current Tab</h2>
 		<p class="muted">${h(currentUrl || 'No inspected URL')}</p>
-		<p>${/^https?:/.test(currentUrl) ? 'Emulation is off for this site. Use the toolbar icon to enable it, then reload.' : 'IWE can run on http(s) WebXR pages. This tab cannot be emulated.'}</p>
+		<p>${isHttp ? 'Emulation is off for this site. Use the toolbar button to enable it.' : 'IWE can run on http(s) WebXR pages. This tab cannot be emulated.'}</p>
+		${isHttp ? enableGuideHtml() : ''}
 	</section>`;
 }
 
 function render(): void {
   const supportsSettings =
     /^https?:/.test(currentUrl) && status?.emulationEnabled;
-  app.innerHTML = `${introHtml()}${supportsSettings ? settingsHtml() : emptyHtml()}${agentHtml()}`;
+  app.innerHTML = `${introHtml()}${supportsSettings ? settingsHtml() : emptyHtml()}`;
   bind();
+}
+
+function bindRange(
+  id: 'ipd' | 'fovy',
+  labelText: (value: number) => string,
+): void {
+  const input = document.getElementById(id) as HTMLInputElement | null;
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const label = input.nextElementSibling;
+    if (label instanceof HTMLElement) {
+      label.textContent = labelText(Number(input.value));
+    }
+  });
+  input.addEventListener('change', () => {
+    void writePatch({ [id]: Number(input.value) } as Partial<OriginPrefs>);
+  });
 }
 
 function bind(): void {
@@ -400,12 +401,8 @@ function bind(): void {
         stereoEnabled: (event.target as HTMLInputElement).checked,
       });
     });
-  document.getElementById('ipd')?.addEventListener('input', (event) => {
-    void writePatch({ ipd: Number((event.target as HTMLInputElement).value) });
-  });
-  document.getElementById('fovy')?.addEventListener('input', (event) => {
-    void writePatch({ fovy: Number((event.target as HTMLInputElement).value) });
-  });
+  bindRange('ipd', (value) => `${value.toFixed(3)} m`);
+  bindRange('fovy', (value) => `${Math.round((value / Math.PI) * 180)} deg`);
   document.getElementById('reload')?.addEventListener('click', () => {
     void reloadInspectedTab();
   });
@@ -431,30 +428,18 @@ function bind(): void {
         void loadState();
       });
     });
-  document.getElementById('copySnippet')?.addEventListener('click', () => {
-    void navigator.clipboard
-      ?.writeText(MCP_CONFIG_SNIPPET)
-      .then(() => {
-        const btn = document.getElementById('copySnippet');
-        if (!btn) return;
-        const prev = btn.innerHTML;
-        btn.classList.add('copied');
-        btn.innerHTML = COPY_CHECK_SVG;
-        setTimeout(() => {
-          btn.classList.remove('copied');
-          btn.innerHTML = prev;
-        }, 1200);
-      })
-      .catch(() => {
-        /* clipboard unavailable — the snippet is selectable */
-      });
-  });
 }
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'local' || !changes[STORAGE_KEY] || suppressStorageRefresh) {
+  const settingsChanged = Boolean(changes[STORAGE_KEY]);
+  const enabledDomainsChanged = Boolean(changes[ENABLED_DOMAINS_KEY]);
+  if (areaName !== 'local' || (!settingsChanged && !enabledDomainsChanged)) {
     return;
   }
+  if (settingsChanged && !enabledDomainsChanged && suppressStorageRefresh) {
+    return;
+  }
+  if (enabledDomainsChanged) dirty = false;
   void loadState();
 });
 

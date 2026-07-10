@@ -277,14 +277,16 @@ const OfferSessionUI: React.FC<OfferSessionProps> = ({
         style={{
           zIndex: 899,
           position: 'fixed',
-          top: showOffer ? '8px' : '-30px',
+          top: '8px',
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
           justifyItems: 'space-between',
           left: '50vw',
-          transform: 'translateX(-50%)',
-          transition: 'all 0.2s ease-in-out',
+          transform: showOffer
+            ? 'translateX(-50%)'
+            : 'translateX(-50%) translateY(calc(-100% - 12px))',
+          transition: 'transform 0.2s ease-in-out',
           paddingLeft: '5px',
           gap: '3px',
         }}

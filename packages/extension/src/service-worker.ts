@@ -225,6 +225,23 @@ async function setEmulation(enable: boolean, url: string, tabId: number) {
   return { ok: true };
 }
 
+async function tabUrl(tabId: number | undefined): Promise<string> {
+  if (tabId == null) return '';
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    return tab.url ?? tab.pendingUrl ?? '';
+  } catch {
+    return '';
+  }
+}
+
+async function urlFromMessage(message: {
+  url?: string;
+  tabId?: number;
+}): Promise<string> {
+  return message.url || (await tabUrl(message.tabId));
+}
+
 // --- Connection state ------------------------------------------------------
 // Lives in session storage (not a module global) so it survives service-worker
 // eviction while the offscreen WebSocket stays open.
@@ -528,7 +545,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (type) {
     case MSG.STATUS: {
       (async () => {
-        const url = (message as { url?: string }).url ?? '';
+        const url = await urlFromMessage(
+          message as { url?: string; tabId?: number },
+        );
         const domain = url ? extractDomain(url) : null;
         const agentTab = await getAgentTab();
         sendResponse({
@@ -536,6 +555,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           connected: await getConnected(),
           agentTabId: agentTab?.tabId ?? null,
           domain,
+          url,
           version: chrome.runtime.getManifest().version,
         });
       })();

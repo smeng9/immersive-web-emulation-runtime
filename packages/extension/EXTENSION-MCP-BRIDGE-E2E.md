@@ -4,7 +4,7 @@ What the automated tests cover, and how to run the full live loop (extension + d
 
 ## Automated (CI-able)
 
-- **Daemon unit + integration** (`packages/extension-bridge`, 36 tests): relay first-response-wins + cleanStale, the 20-tool catalog + Zod validation, screenshot remap + size-ceiling re-request, `127.0.0.1`/Origin/token gate (live WS), config writers (JSON merge + codex TOML, idempotent), and a **full-chain integration test** that spawns the real daemon over stdio, connects a WebSocket browser stand-in, and runs `xr_get_session_status → xr_accept_session → xr_look_at → xr_select → browser_screenshot`.
+- **Daemon unit + integration** (`packages/extension-bridge`): relay first-response-wins + cleanStale, the 20-tool catalog + Zod validation, screenshot remap + size-ceiling re-request, `127.0.0.1` Origin/Host gate (live WS), and a **full-chain integration test** that spawns the real daemon over stdio, connects a WebSocket browser stand-in, and runs `xr_get_session_status → xr_accept_session → xr_look_at → xr_select → browser_screenshot`.
   ```bash
   pnpm --filter @iwer/extension-bridge build && pnpm --filter @iwer/extension-bridge test
   ```
@@ -43,14 +43,24 @@ The live loop needs a loaded extension, a real browser, and an MCP-speaking agen
    pnpm --filter @iwer/extension run build
    ```
 2. **Load the extension**: `chrome://extensions` → Developer mode → Load unpacked → select `immersive-web-emulation-runtime/packages/extension/`.
-3. **Wire your agent**:
+3. **Wire your agent** using the committed project config at repo root:
+   ```json
+   {
+     "mcpServers": {
+       "iwer": {
+         "command": "node",
+         "args": ["packages/extension-bridge/bin/iwer-bridge.mjs", "serve"]
+       }
+     }
+   }
+   ```
+   If your client does not read `.mcp.json`, add the same command manually. For example:
    ```bash
-   node immersive-web-emulation-runtime/packages/extension-bridge/bin/iwer-bridge.mjs install --client claude
-   # or: claude mcp add --scope user iwer -- node <abs>/packages/extension-bridge/bin/iwer-bridge.mjs serve
+   claude mcp add --scope user iwer -- node <abs>/packages/extension-bridge/bin/iwer-bridge.mjs serve
    ```
    Restart the agent so it picks up the MCP server.
 4. **Open a WebXR page** (e.g. an `iwsdk.dev` example, `https://immersive-web.github.io/webxr-samples/`, or your dev server). Click the IWE toolbar icon → toggle **Emulate WebXR on this site** (the page reloads with the synthetic Quest 3 + SEM scene).
-5. **Pair**: in a terminal run `node .../packages/extension-bridge/bin/iwer-bridge.mjs pair` to print the code (the daemon was started by your agent on first tool use). In the IWE popup, paste the code → **Connect** → **Allow this agent session**. The dot turns green ("Agent connected").
+5. **Approve control**: ask the agent to use an IWE tool. The daemon starts over stdio, the extension connects to `ws://127.0.0.1:8723/__iwer_mcp`, and the page shows an **Allow** prompt before the first request reaches the tab.
 6. **Drive it from the agent**, e.g. _"Get the XR session status, enter XR, look at {x:0,y:1,z:-1}, pinch the right controller, then screenshot what you see."_ The agent calls `xr_get_session_status → xr_accept_session → xr_look_at → xr_select → browser_screenshot`; you should see the emulated camera/controllers move and get a downscaled JPEG back.
 
 ### Pass criteria
@@ -58,8 +68,8 @@ The live loop needs a loaded extension, a real browser, and an MCP-speaking agen
 - Tools list shows the 20 `xr_*` / `browser_screenshot` tools.
 - `xr_*` mutations visibly move the emulated headset/controllers in DevUI.
 - `browser_screenshot` returns an image (downscaled; under the model image cap).
-- Disconnect (popup) or closing the tab cleanly drops the session; reconnect re-pairs.
+- Disconnecting the bridge, disabling emulation, or closing the tab cleanly drops control; the next agent action requires the on-page **Allow** prompt again when needed.
 
 ### Phase-0 spikes still to validate live (plan §8)
 
-Offscreen-WS longevity across SW death/sleep; `capture_canvas` on a real WebGL canvas (`preserveDrawingBuffer`/in-frame readback); image token-cap calibration; Chrome Local Network Access exemption for `ws://127.0.0.1`; CWS review of the `offscreen` reason + permissions.
+Offscreen-WS longevity across SW death/sleep; image token-cap calibration; Chrome Local Network Access exemption for `ws://127.0.0.1`; CWS review of the `offscreen` reason + permissions.
